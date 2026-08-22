@@ -20,4 +20,4 @@ DAROS is a real-time Emergency Medical Services (EMS) dispatching platform desig
 ## 🚀 Getting Started
 1. Clone the repository:
    ```bash
-   git clone [https://github.com/Sanchit1307/DAROS.git](https://github.com/Sanchit1307/DAROS.git)
+   git clone (https://github.com/Sanchit1307/DAROS.git)
