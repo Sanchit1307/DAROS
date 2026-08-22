@@ -1,7 +1,7 @@
 # Sensitive Keys & Environment Variables
+config.js
 .env
 .env.local
-firebase-config.js
 
 # Dependencies & Node
 node_modules/

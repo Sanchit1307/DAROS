@@ -1,11 +1,11 @@
 // 1. FIREBASE CONFIGURATION 
 const firebaseConfig = {
-    apiKey: "AIzaSyA7zOt1VHvHt7zmQCunMn4dqidatDgU2HM",
-    authDomain: "ambulance-tracker-13d47.firebaseapp.com",
-    projectId: "ambulance-tracker-13d47",
-    storageBucket: "ambulance-tracker-13d47.firebasestorage.app",
-    messagingSenderId: "535057757922",
-    appId: "1:535057757922:web:34972589bb31e7aff450bb"
+    apiKey: "YOUR_API_KEY_HERE",
+    authDomain: "YOUR_AUTH_DOMAIN_HERE",
+    projectId: "YOUR_PROJECT_ID_HERE",
+    storageBucket: "YOUR_STORAGE_BUCKET_HERE",
+    messagingSenderId: "YOUR_MESSAGING_SENDER_ID_HERE",
+    appId: "YOUR_APP_ID_HERE"
 };
 
 // Initialize Firebase
