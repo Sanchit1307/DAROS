@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Driver Portal - Ambulance Sync</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+    <div id="login-screen" class="overlay">
+        <div class="modal">
+            <h2 style="color:#d32f2f"><i class="fa-solid fa-ambulance"></i> DRIVER LOGIN</h2>
+            <input type="text" id="id-input" placeholder="Unit ID (e.g. AMB-101)">
+            <input type="password" id="pin-input" placeholder="4-Digit PIN">
+            <button onclick="handleLogin()" class="btn-action btn-go">AUTHENTICATE</button>
+        </div>
+    </div>
+
+    <div id="app" style="display:none;">
+        <div id="sidebar">
+            <div class="header">
+                <div><b id="display-id">--</b><br><small><i class="fa-solid fa-wifi"></i> ONLINE</small></div>
+                <div id="clock">00:00</div>
+            </div>
+            
+            <div class="content">
+                <div class="section">
+                    <small><b>PATIENT VITALS</b></small>
+                    <div style="display:flex; gap:5px; margin-top:5px;">
+                        <input type="text" id="v-bp" value="120/80" onchange="syncData()" placeholder="BP" style="text-align:center;">
+                        <input type="number" id="v-hr" value="75" onchange="syncData()" placeholder="HR" style="text-align:center;">
+                        <input type="number" id="v-spo2" value="98" onchange="syncData()" placeholder="SpO2" style="text-align:center;">
+                    </div>
+                </div>
+
+                <div class="section">
+                    <small><b><i class="fa-solid fa-boxes-stacked"></i> INVENTORY CHECK</b></small>
+                    <div style="display:grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top:8px;">
+                        <div>
+                            <label style="font-size:10px; display:block;">OXYGEN</label>
+                            <select id="inv-oxygen" onchange="updateInv()" style="width:100%; padding:5px; border-radius:4px;">
+                                <option>Full</option>
+                                <option>Half</option>
+                                <option value="Low">Low Stock</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="font-size:10px; display:block;">BANDAGES</label>
+                            <input type="number" id="inv-bandages" value="10" onchange="updateInv()" style="width:100%; padding:4px; border-radius:4px; border:1px solid #ccc;">
+                        </div>
+                    </div>
+                </div>
+
+                <div id="chat-display"></div>
+                <div style="display:flex; gap:5px;">
+                    <input type="text" id="chat-input" placeholder="Message HQ...">
+                    <button onclick="sendMsg()" class="btn-action btn-gps" style="width:60px; margin:8px 0;"><i class="fa-solid fa-paper-plane"></i></button>
+                </div>
+
+                <button onclick="locateMe()" class="btn-action btn-gps"><i class="fa-solid fa-location-crosshairs"></i> SYNC GPS</button>
+                <button onclick="calcRoute()" class="btn-action btn-go"><i class="fa-solid fa-route"></i> NAVIGATE</button>
+                <button onclick="toggleEmergency()" id="emergency-btn" class="btn-action btn-emergency">EMERGENCY: OFF</button>
+                
+                <div id="nav-info" style="text-align:center; font-weight:bold; color:#2c3e50; font-size:0.9em;">...</div>
+            </div>
+        </div>
+        <div id="map"></div>
+    </div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app-logic.js"></script>
+    
+    <script>
+        let map, marker, destMarker, routeLine, currentPos;
+        let driverID = "";
+        let isEmergency = false;
+
+        async function handleLogin() {
+            const id = document.getElementById('id-input').value.trim();
+            const pin = document.getElementById('pin-input').value.trim();
+            const res = await loginDriver(id, pin);
+            if(res.success) {
+                driverID = id.toUpperCase();
+                document.getElementById('login-screen').style.display = 'none';
+                document.getElementById('app').style.display = 'block';
+                document.getElementById('display-id').innerText = driverID;
+                initMap();
+                listenChat();
+                setInterval(() => document.getElementById('clock').innerText = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}), 1000);
+            } else { alert("ACCESS DENIED: Invalid Credentials"); }
+        }
+
+        function initMap() {
+            map = L.map('map').setView([18.5204, 73.8567], 15);
+            L.tileLayer(mapStyle, { attribution: mapAttrib }).addTo(map);
+            marker = L.marker([18.5204, 73.8567]).addTo(map);
+            map.on('click', e => {
+                currentPos = [e.latlng.lat, e.latlng.lng];
+                if(destMarker) map.removeLayer(destMarker);
+                destMarker = L.marker(currentPos).addTo(map);
+            });
+        }
+
+        function locateMe() {
+            navigator.geolocation.getCurrentPosition(p => {
+                const latlng = [p.coords.latitude, p.coords.longitude];
+                marker.setLatLng(latlng);
+                map.setView(latlng, 18);
+                syncData(latlng);
+            });
+        }
+
+        function syncData(ll = marker.getLatLng()) {
+            if(!driverID) return;
+            db.collection("ambulances").doc(driverID).set({
+                lat: ll.lat || ll[0],
+                lng: ll.lng || ll[1],
+                bp: document.getElementById('v-bp').value,
+                hr: document.getElementById('v-hr').value,
+                spo2: document.getElementById('v-spo2').value,
+                isEmergency: isEmergency,
+                lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+            }, {merge: true});
+        }
+
+        // NEW: Inventory Sync
+        function updateInv() {
+            if(!driverID) return;
+            const invData = {
+                oxygen: document.getElementById('inv-oxygen').value,
+                bandages: document.getElementById('inv-bandages').value
+            };
+            db.collection("ambulances").doc(driverID).set({
+                inventory: invData
+            }, {merge: true});
+        }
+
+        async function calcRoute() {
+            if(!currentPos) return alert("Tap map for destination");
+            const start = marker.getLatLng();
+            const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${start.lng},${start.lat};${currentPos[1]},${currentPos[0]}?steps=true&geometries=geojson`);
+            const data = await res.json();
+            const route = data.routes[0];
+            if(routeLine) map.removeLayer(routeLine);
+            routeLine = L.polyline(route.geometry.coordinates.map(c=>[c[1],c[0]]), {color: isEmergency?'red':'blue', weight:6}).addTo(map);
+            const step = route.legs[0].steps[1] || route.legs[0].steps[0];
+            const road = step.name || "Local Road";
+            document.getElementById('nav-info').innerText = `NEXT: ${road.toUpperCase()}`;
+            speak(`Proceed onto ${road}`);
+        }
+
+        function toggleEmergency() {
+            isEmergency = !isEmergency;
+            const btn = document.getElementById('emergency-btn');
+            btn.className = `btn-action btn-emergency ${isEmergency ? 'emergency-active' : ''}`;
+            btn.innerText = isEmergency ? "EMERGENCY: ON" : "EMERGENCY: OFF";
+            syncData();
+        }
+
+        function sendMsg() {
+            const m = document.getElementById('chat-input').value;
+            if(!m) return;
+            db.collection("chat_logs").add({ sender: driverID, msg: m, time: firebase.firestore.FieldValue.serverTimestamp() });
+            document.getElementById('chat-input').value = "";
+        }
+
+        function listenChat() {
+            db.collection("chat_logs").orderBy("time", "asc").limitToLast(10).onSnapshot(snap => {
+                const disp = document.getElementById('chat-display');
+                disp.innerHTML = "";
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const cls = d.sender === driverID ? 'msg-out' : 'msg-in';
+                    disp.innerHTML += `<div class="msg ${cls}"><b>${d.sender}:</b> ${d.msg}</div>`;
+                });
+                disp.scrollTop = disp.scrollHeight;
+            });
+        }
+    </script>
+</body>
+</html>

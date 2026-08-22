@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>HQ - Dispatch Center</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body onclick="unlockAudio()">
+
+    <div id="sidebar">
+        <div class="header">
+            <b><i class="fa-solid fa-tower-broadcast"></i> DISPATCH HQ</b>
+            <span id="alert-bell" style="display:none; color:#ffeb3b;"><i class="fa-solid fa-bell"></i> ALERT</span>
+        </div>
+        <div class="content">
+            <div id="unit-list">Waiting for active units...</div>
+            <hr>
+            <div id="chat-display" style="height: 250px;"></div>
+            <div style="display:flex; gap:5px; margin-top:5px;">
+                <input type="text" id="hq-msg" placeholder="Broadcast to fleet...">
+                <button onclick="sendHQ()" class="btn-action btn-gps" style="width:60px; margin:8px 0;"><i class="fa-solid fa-paper-plane"></i></button>
+            </div>
+        </div>
+    </div>
+    <div id="map"></div>
+
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="app-logic.js"></script>
+    
+    <script>
+        const map = L.map('map').setView([18.5204, 73.8567], 13);
+        L.tileLayer(mapStyle, { attribution: mapAttrib }).addTo(map);
+        const markers = {};
+        const activeAlerts = new Set();
+        let audioEnabled = false;
+        function unlockAudio() { audioEnabled = true; }
+
+        db.collection("ambulances").onSnapshot(snap => {
+            const list = document.getElementById('unit-list');
+            list.innerHTML = "";
+            
+            snap.forEach(doc => {
+                const d = doc.data();
+                const id = doc.id;
+                
+                // Update Markers
+                if(!markers[id]) markers[id] = L.marker([d.lat, d.lng]).addTo(map).bindPopup(id);
+                else markers[id].setLatLng([d.lat, d.lng]);
+
+                // Calculate Priority Score for Table/Card
+                const dist = calculateDistance(18.5204, 73.8567, d.lat, d.lng); // Dist from Center
+                const score = calculatePriorityScore(dist, d.isEmergency, d.inventory);
+
+                // Siren Alert
+                if (d.isEmergency) {
+                    if (!activeAlerts.has(id)) {
+                        activeAlerts.add(id);
+                        if(audioEnabled) playSiren();
+                        showAlert(`EMERGENCY: ${id}`);
+                    }
+                } else { activeAlerts.delete(id); }
+
+                // Map Markers
+                if(!markers[id]) markers[id] = L.marker([d.lat, d.lng]).addTo(map).bindPopup(id);
+                else markers[id].setLatLng([d.lat, d.lng]);
+
+                // Sidebar Card with Inventory
+                const card = document.createElement('div');
+                card.className = `unit-card ${d.isEmergency ? 'emerg' : ''}`;
+                card.onclick = () => map.setView([d.lat, d.lng], 17);
+                
+                const inv = d.inventory || {oxygen: 'N/A', bandages: 'N/A'};
+                
+                card.innerHTML = `
+                    <div style="display:flex; justify-content:space-between;">
+                        <b>${id}</b>
+                        <span>${d.isEmergency ? '🚨 CRITICAL' : 'Online'}</span>
+                    </div>
+                    <div style="font-size:11px; margin-top:5px; color:#444;">
+                        HR: ${d.hr} | BP: ${d.bp} | SpO2: ${d.spo2}%
+                    </div>
+                    <div style="margin-top:6px; padding:4px; background:#fff; border-radius:4px; font-size:10px; border:1px solid #ddd;">
+                        <i class="fa-solid fa-box-open"></i> STOCK: 
+                        O2: <span style="color:${inv.oxygen === 'Low' ? 'red' : 'green'}; font-weight:bold;">${inv.oxygen}</span> | 
+                        Bandages: <b>${inv.bandages}</b>
+                    </div>
+                `;
+                list.appendChild(card);
+            });
+        });
+
+        db.collection("chat_logs").orderBy("time", "asc").limitToLast(15).onSnapshot(snap => {
+            const disp = document.getElementById('chat-display');
+            disp.innerHTML = "";
+            snap.forEach(doc => {
+                const d = doc.data();
+                const cls = d.sender === 'HQ' ? 'msg-out' : 'msg-in';
+                disp.innerHTML += `<div class="msg ${cls}"><b>${d.sender}:</b> ${d.msg}</div>`;
+            });
+            disp.scrollTop = disp.scrollHeight;
+        });
+
+        function sendHQ() {
+            const m = document.getElementById('hq-msg').value;
+            if(!m) return;
+            db.collection("chat_logs").add({ sender: 'HQ', msg: m, time: firebase.firestore.FieldValue.serverTimestamp() });
+            document.getElementById('hq-msg').value = "";
+        }
+
+        function showAlert(text) {
+            const bell = document.getElementById('alert-bell');
+            bell.style.display = 'inline-block';
+            speak(text);
+            setTimeout(() => { bell.style.display = 'none'; }, 5000);
+        }
+        // SEARCH FUNCTION
+        function filterUnits() {
+            const query = document.getElementById('search').value.toUpperCase();
+            const cards = document.getElementsByClassName('unit-card');
+            for (let card of cards) {
+                const name = card.querySelector('.u-name').innerText.toUpperCase();
+                card.style.display = name.includes(query) ? "" : "none";
+            }
+        }
+    </script>
+</body>
+</html>

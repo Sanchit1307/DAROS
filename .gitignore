@@ -1,0 +1,16 @@
+# Sensitive Keys & Environment Variables
+.env
+.env.local
+firebase-config.js
+
+# Dependencies & Node
+node_modules/
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# System / IDE Files
+.vscode/
+.DS_Store
+Thumbs.db
